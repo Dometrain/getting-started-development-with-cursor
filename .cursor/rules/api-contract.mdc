@@ -1,0 +1,11 @@
+---
+description: Use when adding or changing an HTTP endpoint
+alwaysApply: false
+---
+
+# API contract
+
+- Check docs/api/openapi.yaml first.
+- Never add an endpoint that is not in the contract.
+- Return Problem Details for errors.
+- Example: add POST /polls only if openapi.yaml already lists it; a 400 returns application/problem+json.

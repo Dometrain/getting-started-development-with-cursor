@@ -1,0 +1,8 @@
+---
+description: What LivePoll is and where scope lives
+alwaysApply: true
+---
+
+# Project context
+
+LivePoll lets a signed-in user create a poll with a title and 2 to 6 options, cast one vote stored under their username, and share a link whose results show live totals and votes per second. An admin can add options and, on /admin, start and stop virtual users that vote through the public voting API. The metrics panel shows votes per second, total votes, active polls, votes per option, and the worker backlog.

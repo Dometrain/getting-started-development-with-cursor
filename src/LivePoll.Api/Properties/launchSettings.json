@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "http": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": true,
+      "applicationUrl": "http://localhost:5148",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ConnectionStrings__DefaultConnection": "Host=localhost;Port=5432;Database=livepoll;Username=livepoll;Password=livepoll",
+        "Ruvio__Password": "livepoll",
+        "Jwt__SigningKey": "livepoll-dev-signing-key-32bytes!",
+        "Admin__Users": "ada-admin"
+      }
+    },
+    "https": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": true,
+      "applicationUrl": "https://localhost:7281;http://localhost:5148",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ConnectionStrings__DefaultConnection": "Host=localhost;Port=5432;Database=livepoll;Username=livepoll;Password=livepoll",
+        "Ruvio__Password": "livepoll",
+        "Jwt__SigningKey": "livepoll-dev-signing-key-32bytes!",
+        "Admin__Users": "ada-admin"
+      }
+    }
+  }
+}

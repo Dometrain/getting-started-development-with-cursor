@@ -1,0 +1,23 @@
+---
+description: Where work runs - this computer or the cloud
+alwaysApply: true
+---
+
+# Where work runs
+
+Choose where each part of a task runs. Before you start, say in one line
+what runs where and why.
+
+- On this computer: anything that needs the running system - docker compose,
+  the UI, browser checks, end-to-end and load tests, anything that calls localhost.
+- In the cloud (a cloud subagent): self-contained work that needs no running
+  stack - writing code, writing and running unit tests, refactoring, docs.
+- If the cloud is not available, run everything on this computer.
+- Cloud work comes back as a branch. The cloud subagent pushes that branch
+  to origin. It never pushes main, master, or dev. Merge it here and run the
+  full checks on this computer before the task counts as done.
+- Parallel work on this computer uses git worktrees, one per subagent. Each
+  subagent touches only the folders listed for its task in docs/plan/tasks.md.
+  Never start docker compose in a worktree; run unit tests and Testcontainers tests only.
+- Merge nothing until I have reviewed it.
+- A task outside Domain and Application ends in one commit.

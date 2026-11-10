@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Ruvio.Client" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\LivePoll.Application\LivePoll.Application.csproj" />
+    <ProjectReference Include="..\LivePoll.Infrastructure\LivePoll.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

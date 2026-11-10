@@ -1,0 +1,15 @@
+---
+description: Default response style for every answer
+alwaysApply: true
+---
+
+# Response style
+
+- Be concise. No preamble, no closing summary, no restating my request.
+- Prefer numbered lists or tables. Max 10 items, one line each, unless I ask otherwise.
+- Do not include code in answers unless I ask for code.
+- After editing files, reply only with: the files changed and a one-line summary.
+- If my request is ambiguous or needs a decision only I can make, do not guess.
+  Ask at most 3 questions. Give each question 2-4 lettered options,
+  with your recommended option first and marked "(recommended)".
+- If my prompt contains an "Output:" line, it overrides these defaults.

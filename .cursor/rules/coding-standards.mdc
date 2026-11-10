@@ -1,0 +1,13 @@
+---
+description: SOLID and code shape for every change
+alwaysApply: true
+---
+
+# Coding standards
+
+- Follow SOLID.
+- Keep classes and methods small.
+- Use meaningful names.
+- No comments that repeat the code.
+- No dead code.
+- Prefer composition over inheritance.

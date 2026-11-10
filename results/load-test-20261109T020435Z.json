@@ -1,0 +1,92 @@
+{
+  "settings": {
+    "voterCount": 1000,
+    "rampUpSeconds": 0,
+    "maxConnectionsPerServer": 1000,
+    "pollId": "900b1721-0c7b-4042-b8e2-d903eaa2e9aa"
+  },
+  "samples": [
+    {
+      "elapsedMs": 1015,
+      "votesPerSecond": 0,
+      "backlog": 44
+    },
+    {
+      "elapsedMs": 2151,
+      "votesPerSecond": 1000,
+      "backlog": 351
+    },
+    {
+      "elapsedMs": 3188,
+      "votesPerSecond": 0,
+      "backlog": 1
+    },
+    {
+      "elapsedMs": 4269,
+      "votesPerSecond": 0,
+      "backlog": 1
+    },
+    {
+      "elapsedMs": 5307,
+      "votesPerSecond": 0,
+      "backlog": 1
+    },
+    {
+      "elapsedMs": 6338,
+      "votesPerSecond": 0,
+      "backlog": 1
+    },
+    {
+      "elapsedMs": 7379,
+      "votesPerSecond": 0,
+      "backlog": 1
+    },
+    {
+      "elapsedMs": 8422,
+      "votesPerSecond": 0,
+      "backlog": 1
+    },
+    {
+      "elapsedMs": 9471,
+      "votesPerSecond": 0,
+      "backlog": 1
+    },
+    {
+      "elapsedMs": 10503,
+      "votesPerSecond": 0,
+      "backlog": 1
+    },
+    {
+      "elapsedMs": 11559,
+      "votesPerSecond": 0,
+      "backlog": 1
+    },
+    {
+      "elapsedMs": 12592,
+      "votesPerSecond": 0,
+      "backlog": 1
+    },
+    {
+      "elapsedMs": 13639,
+      "votesPerSecond": 0,
+      "backlog": 1
+    },
+    {
+      "elapsedMs": 14684,
+      "votesPerSecond": 0,
+      "backlog": 1
+    },
+    {
+      "elapsedMs": 15730,
+      "votesPerSecond": 0,
+      "backlog": 1
+    },
+    {
+      "elapsedMs": 16755,
+      "votesPerSecond": 0,
+      "backlog": 1
+    }
+  ],
+  "p95VoteLatencyMs": 92.6668,
+  "errors": []
+}

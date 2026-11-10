@@ -1,0 +1,15 @@
+﻿{
+  "$schema": "https://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "LivePoll.Worker": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development",
+        "ConnectionStrings__DefaultConnection": "Host=localhost;Port=5432;Database=livepoll;Username=livepoll;Password=livepoll",
+        "Ruvio__Host": "127.0.0.1",
+        "Ruvio__Password": "livepoll"
+      }
+    }
+  }
+}

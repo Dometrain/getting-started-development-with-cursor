@@ -1,0 +1,157 @@
+name: livepoll
+
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-livepoll}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-livepoll}
+      POSTGRES_DB: ${POSTGRES_DB:-livepoll}
+      LIVEPOLL_READONLY_PASSWORD: ${LIVEPOLL_READONLY_PASSWORD:-livepoll_readonly}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./deploy/postgres/01-readonly.sh:/docker-entrypoint-initdb.d/01-readonly.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - internal
+
+  ruvio:
+    image: salihcantekin/ruvio:latest
+    environment:
+      RUVIO_REQUIREPASS: ${RUVIO_REQUIREPASS:-livepoll}
+      RUVIO_DURABILITY: everysec
+      RUVIO_DATA_DIR: /data
+    volumes:
+      - ruvio-data:/data
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "ruvio-ctl", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - internal
+
+  ruvio-ui:
+    image: salihcantekin/ruvio-ui:linux
+    profiles:
+      - tools
+    environment:
+      RUVIO_UI_TARGET_HOST: ruvio
+      RUVIO_UI_TARGET_PORT: 6379
+      RUVIO_UI_TARGET_PASSWORD: ${RUVIO_REQUIREPASS:-livepoll}
+    depends_on:
+      ruvio:
+        condition: service_healthy
+    networks:
+      - internal
+
+  api1: &api
+    image: livepoll-api:local
+    build:
+      context: .
+      dockerfile: src/LivePoll.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:-livepoll};Username=${POSTGRES_USER:-livepoll};Password=${POSTGRES_PASSWORD:-livepoll}
+      Ruvio__Host: ruvio
+      Ruvio__Port: "6379"
+      Ruvio__Password: ${RUVIO_REQUIREPASS:-livepoll}
+      Jwt__Issuer: livepoll
+      Jwt__Audience: livepoll
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:-livepoll-dev-signing-key-32bytes!}
+      Admin__Users: ${ADMIN_USERS:-ada-admin}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ruvio:
+        condition: service_healthy
+    networks:
+      - internal
+
+  api2:
+    <<: *api
+    image: livepoll-api:local
+
+  worker1: &worker
+    hostname: worker1
+    image: livepoll-worker:local
+    build:
+      context: .
+      dockerfile: src/LivePoll.Worker/Dockerfile
+    environment:
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:-livepoll};Username=${POSTGRES_USER:-livepoll};Password=${POSTGRES_PASSWORD:-livepoll}
+      Ruvio__Host: ruvio
+      Ruvio__Port: "6379"
+      Ruvio__Password: ${RUVIO_REQUIREPASS:-livepoll}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ruvio:
+        condition: service_healthy
+    networks:
+      - internal
+
+  worker2:
+    <<: *worker
+    hostname: worker2
+    image: livepoll-worker:local
+
+  bff:
+    image: livepoll-bff:local
+    build:
+      context: .
+      dockerfile: src/LivePoll.Bff/Dockerfile
+    environment:
+      Jwt__Issuer: livepoll
+      Jwt__Audience: livepoll
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:-livepoll-dev-signing-key-32bytes!}
+    depends_on:
+      api1:
+        condition: service_started
+      api2:
+        condition: service_started
+      simulator:
+        condition: service_started
+    networks:
+      - internal
+      - edge
+
+  simulator:
+    image: livepoll-simulator:local
+    build:
+      context: .
+      dockerfile: src/LivePoll.Simulator/Dockerfile
+    environment:
+      PublicApi__BaseAddress: http://nginx/
+    networks:
+      - edge
+
+  nginx:
+    image: livepoll-nginx:local
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    ports:
+      - "127.0.0.1:${NGINX_PORT:-8080}:80"
+    depends_on:
+      bff:
+        condition: service_started
+    networks:
+      - internal
+      - edge
+
+volumes:
+  postgres-data:
+  ruvio-data:
+
+networks:
+  internal:
+  edge:

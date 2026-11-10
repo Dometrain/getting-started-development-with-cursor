@@ -1,0 +1,26 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LivePoll.Api/LivePoll.Api.csproj" />
+    <Project Path="src/LivePoll.Application/LivePoll.Application.csproj" />
+    <Project Path="src/LivePoll.Bff/LivePoll.Bff.csproj" />
+    <Project Path="src/LivePoll.Domain/LivePoll.Domain.csproj" />
+    <Project Path="src/LivePoll.Infrastructure/LivePoll.Infrastructure.csproj" />
+    <Project Path="src/LivePoll.Worker/LivePoll.Worker.csproj" />
+    <Project Path="src/LivePoll.Simulator/LivePoll.Simulator.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/LivePoll.Api.Tests/LivePoll.Api.Tests.csproj" />
+    <Project Path="tests/LivePoll.Application.Tests/LivePoll.Application.Tests.csproj" />
+    <Project Path="tests/LivePoll.Bff.Tests/LivePoll.Bff.Tests.csproj" />
+    <Project Path="tests/LivePoll.Build.Tests/LivePoll.Build.Tests.csproj" />
+    <Project Path="tests/LivePoll.Domain.Tests/LivePoll.Domain.Tests.csproj" />
+    <Project Path="tests/LivePoll.Infrastructure.Tests/LivePoll.Infrastructure.Tests.csproj" />
+    <Project Path="tests/LivePoll.Integration.Voting/LivePoll.Integration.Voting.csproj" />
+    <Project Path="tests/LivePoll.Integration.Compose/LivePoll.Integration.Compose.csproj" />
+    <Project Path="tests/LivePoll.Integration.Results/LivePoll.Integration.Results.csproj" />
+    <Project Path="tests/LivePoll.Integration.ResultsHour/LivePoll.Integration.ResultsHour.csproj" />
+    <Project Path="tests/LivePoll.Integration.Load/LivePoll.Integration.Load.csproj" />
+    <Project Path="tests/LivePoll.Worker.Tests/LivePoll.Worker.Tests.csproj" />
+    <Project Path="tests/LivePoll.Simulator.Tests/LivePoll.Simulator.Tests.csproj" />
+  </Folder>
+</Solution>

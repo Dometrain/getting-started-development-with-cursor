@@ -1,0 +1,1444 @@
+openapi: 3.1.0
+info:
+  title: LivePoll API
+  version: 0.1.0
+  description: |
+    Public HTTP API for LivePoll. Browsers and the simulator call it through nginx.
+
+    `POST /auth/dev-token` exchanges a username for a signed JWT. No password is used.
+    The token is stateless. There is no server session.
+    Results routes take no token. Every other route requires that token as a Bearer token.
+    Admin usernames are the comma-separated configuration value Admin__Users.
+    A dev token for one of those names includes role=admin. Real role management is out of scope.
+    Every /admin/* route requires role=admin. The BFF sends /admin/simulations/* to the Simulator, which checks the role.
+    The API does not handle simulation routes.
+
+    A poll has a title, 2 to 6 options, and stays open for 10 minutes (600 seconds).
+    The server sets that window. Each username can vote once. Results stay available after the poll ends.
+    Only a token with role=admin can change the title or the options, and only before the first vote.
+    Error responses use Problem Details (RFC 9457), media type `application/problem+json`.
+servers:
+  - url: /
+    description: nginx origin. nginx forwards these paths to the BFF.
+tags:
+  - name: Auth
+    description: Dev sign-in. A username is exchanged for a signed token. No password.
+  - name: Polls
+    description: Create a poll and read it, including whether the 10-minute window has ended.
+  - name: Votes
+    description: Cast the signed-in user's one vote on an open poll.
+  - name: Results
+    description: Current totals and the live results stream.
+  - name: Metrics
+    description: Current business metrics. The panel reads them by polling.
+  - name: Admin
+    description: Admin edits of a poll, and start, read, and stop of a virtual-voter simulation.
+security:
+  - devToken: []
+paths:
+  /auth/dev-token:
+    post:
+      tags: [Auth]
+      operationId: createDevToken
+      summary: Get a signed dev token
+      description: |
+        Accepts only a username and returns a signed JWT. No password is sent or stored.
+        This route is not rate limited.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DevTokenRequest'
+            examples:
+              ada:
+                summary: Username only
+                value:
+                  username: ada
+      responses:
+        '200':
+          description: Signed dev token for this username.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DevToken'
+              examples:
+                ada:
+                  summary: Token for ada
+                  value:
+                    token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZGEifQ.dev-signature
+                    username: ada
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+  /polls:
+    post:
+      tags: [Polls]
+      operationId: createPoll
+      summary: Create a poll
+      description: |
+        Any signed-in user can create a poll. The title must not be blank or whitespace.
+        Each option must be at least 3 characters and must not be whitespace.
+        There are 2 to 6 options. The server opens the poll for 10 minutes and returns `durationSeconds` 600 and `endsAt`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePollRequest'
+            examples:
+              lunchSpot:
+                summary: Two-option poll open for 10 minutes
+                value:
+                  title: Lunch spot
+                  options:
+                    - Cafeteria
+                    - Food truck
+      responses:
+        '201':
+          description: Poll created.
+          headers:
+            Location:
+              description: Path of the new poll.
+              required: true
+              schema:
+                type: string
+              example: /polls/3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Poll'
+              examples:
+                lunchSpot:
+                  summary: Created poll, still open
+                  value:
+                    id: 3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70
+                    title: Lunch spot
+                    options:
+                      - id: 8a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+                        text: Cafeteria
+                      - id: 1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e
+                        text: Food truck
+                    durationSeconds: 600
+                    createdAt: '2026-11-06T17:00:00Z'
+                    endsAt: '2026-11-06T17:10:00Z'
+                    ended: false
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /polls/{pollId}:
+    get:
+      tags: [Polls]
+      operationId: getPoll
+      summary: Get poll details
+      description: Poll title, options, open window, and whether that window has ended.
+      parameters:
+        - $ref: '#/components/parameters/PollId'
+      responses:
+        '200':
+          description: Poll details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Poll'
+              examples:
+                lunchSpotOpen:
+                  summary: Poll still inside its 10-minute window
+                  value:
+                    id: 3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70
+                    title: Lunch spot
+                    options:
+                      - id: 8a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+                        text: Cafeteria
+                      - id: 1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e
+                        text: Food truck
+                    durationSeconds: 600
+                    createdAt: '2026-11-06T17:00:00Z'
+                    endsAt: '2026-11-06T17:10:00Z'
+                    ended: false
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/PollNotFound'
+    patch:
+      tags: [Admin]
+      operationId: updatePollTitle
+      security:
+        - adminRole: []
+      summary: Edit the poll title
+      description: |
+        Only an admin can edit the title. The caller sends a dev token with role=admin.
+        Admin usernames are the comma-separated configuration value Admin__Users.
+        After the poll has received a vote, the title cannot change.
+        This route is not rate limited.
+      parameters:
+        - $ref: '#/components/parameters/PollId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePollTitleRequest'
+            examples:
+              dinnerSpot:
+                summary: New title
+                value:
+                  title: Dinner spot
+      responses:
+        '200':
+          description: Updated poll. The open window is unchanged.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Poll'
+              examples:
+                renamed:
+                  summary: Title changed before any vote
+                  value:
+                    id: 3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70
+                    title: Dinner spot
+                    options:
+                      - id: 8a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+                        text: Cafeteria
+                      - id: 1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e
+                        text: Food truck
+                    durationSeconds: 600
+                    createdAt: '2026-11-06T17:00:00Z'
+                    endsAt: '2026-11-06T17:10:00Z'
+                    ended: false
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/PollNotFound'
+        '409':
+          $ref: '#/components/responses/PollHasVotes'
+  /polls/{pollId}/options:
+    post:
+      tags: [Admin]
+      operationId: addPollOption
+      security:
+        - adminRole: []
+      summary: Add a poll option
+      description: |
+        Only an admin can add an option. A voter cannot add one on the vote call.
+        The caller sends a dev token with role=admin.
+        Admin usernames are the comma-separated configuration value Admin__Users.
+        The poll keeps from 2 to 6 options. After the poll has received a vote, options cannot change.
+        This route is not rate limited.
+      parameters:
+        - $ref: '#/components/parameters/PollId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PollOptionTextRequest'
+            examples:
+              saladBar:
+                summary: New option label
+                value:
+                  text: Salad bar
+      responses:
+        '200':
+          description: Poll including the new option.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Poll'
+              examples:
+                withSaladBar:
+                  summary: Third option added before any vote
+                  value:
+                    id: 3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70
+                    title: Lunch spot
+                    options:
+                      - id: 8a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+                        text: Cafeteria
+                      - id: 1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e
+                        text: Food truck
+                      - id: 2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f
+                        text: Salad bar
+                    durationSeconds: 600
+                    createdAt: '2026-11-06T17:00:00Z'
+                    endsAt: '2026-11-06T17:10:00Z'
+                    ended: false
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/PollNotFound'
+        '409':
+          $ref: '#/components/responses/PollHasVotes'
+  /polls/{pollId}/options/{optionId}:
+    patch:
+      tags: [Admin]
+      operationId: updatePollOption
+      security:
+        - adminRole: []
+      summary: Edit an option label
+      description: |
+        Only an admin can edit an option. The caller sends a dev token with role=admin.
+        Admin usernames are the comma-separated configuration value Admin__Users.
+        After the poll has received a vote, options cannot change.
+        This route is not rate limited.
+      parameters:
+        - $ref: '#/components/parameters/PollId'
+        - $ref: '#/components/parameters/OptionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PollOptionTextRequest'
+            examples:
+              foodCart:
+                summary: Replacement label
+                value:
+                  text: Food cart
+      responses:
+        '200':
+          description: Poll with the edited option.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Poll'
+              examples:
+                renamedOption:
+                  summary: Option label changed before any vote
+                  value:
+                    id: 3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70
+                    title: Lunch spot
+                    options:
+                      - id: 8a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+                        text: Cafeteria
+                      - id: 1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e
+                        text: Food cart
+                    durationSeconds: 600
+                    createdAt: '2026-11-06T17:00:00Z'
+                    endsAt: '2026-11-06T17:10:00Z'
+                    ended: false
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/OptionNotFound'
+        '409':
+          $ref: '#/components/responses/PollHasVotes'
+    delete:
+      tags: [Admin]
+      operationId: removePollOption
+      security:
+        - adminRole: []
+      summary: Remove an option
+      description: |
+        Only an admin can remove an option. The caller sends a dev token with role=admin.
+        Admin usernames are the comma-separated configuration value Admin__Users.
+        At least 2 options must remain. After the poll has received a vote, options cannot change.
+        This route is not rate limited.
+      parameters:
+        - $ref: '#/components/parameters/PollId'
+        - $ref: '#/components/parameters/OptionId'
+      responses:
+        '200':
+          description: Poll after the option was removed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Poll'
+              examples:
+                withoutFoodTruck:
+                  summary: One option removed before any vote
+                  value:
+                    id: 3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70
+                    title: Lunch spot
+                    options:
+                      - id: 8a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+                        text: Cafeteria
+                      - id: 2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f
+                        text: Salad bar
+                    durationSeconds: 600
+                    createdAt: '2026-11-06T17:00:00Z'
+                    endsAt: '2026-11-06T17:10:00Z'
+                    ended: false
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/OptionNotFound'
+        '409':
+          $ref: '#/components/responses/PollHasVotes'
+  /polls/{pollId}/votes:
+    post:
+      tags: [Votes]
+      operationId: castVote
+      summary: Vote for one option
+      description: |
+        Records one vote for the username in the dev token. The caller sends an option id, not the username.
+        A second vote by that username returns 409 `/problems/already-voted`.
+        A vote after the poll's 10-minute window returns 409 `/problems/poll-ended`.
+        This route is the only rate-limited route. The limit is one fixed window per username.
+        When the window is full the response is 429 and includes `Retry-After`.
+        If Ruvio is unavailable the limiter fails closed and this route returns 503. The vote is not accepted.
+      parameters:
+        - $ref: '#/components/parameters/PollId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CastVoteRequest'
+            examples:
+              cafeteria:
+                summary: Vote for Cafeteria
+                value:
+                  optionId: 8a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+      responses:
+        '202':
+          description: Vote accepted for this username. The durable row is written after this response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoteAccepted'
+              examples:
+                adaCafeteria:
+                  summary: Accepted vote
+                  value:
+                    pollId: 3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70
+                    optionId: 8a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+                    username: ada
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/PollNotFound'
+        '409':
+          description: The vote was rejected. `type` distinguishes a repeat vote from an ended poll.
+          content:
+            application/problem+json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/AlreadyVotedProblem'
+                  - $ref: '#/components/schemas/PollEndedProblem'
+                discriminator:
+                  propertyName: type
+                  mapping:
+                    /problems/already-voted: '#/components/schemas/AlreadyVotedProblem'
+                    /problems/poll-ended: '#/components/schemas/PollEndedProblem'
+              examples:
+                alreadyVoted:
+                  summary: This username already voted
+                  value:
+                    type: /problems/already-voted
+                    title: Already voted
+                    status: 409
+                    detail: This username has already voted on this poll.
+                    instance: /polls/3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70/votes
+                pollEnded:
+                  summary: The 10-minute window has ended
+                  value:
+                    type: /problems/poll-ended
+                    title: Poll ended
+                    status: 409
+                    detail: This poll is closed. It was open for 10 minutes.
+                    instance: /polls/3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70/votes
+        '429':
+          description: The username exceeded the vote route's fixed window.
+          headers:
+            Retry-After:
+              description: Seconds to wait before this username votes again.
+              required: true
+              schema:
+                type: integer
+                minimum: 0
+              example: 1
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/RateLimitedProblem'
+              examples:
+                voteWindowFull:
+                  summary: Per-username vote window is full
+                  value:
+                    type: /problems/rate-limited
+                    title: Too many requests
+                    status: 429
+                    detail: This username has used its vote limit for the current window.
+                    instance: /polls/3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70/votes
+        '503':
+          description: The vote limiter fails closed because Ruvio is unavailable. The vote is not accepted.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ServiceUnavailableProblem'
+              examples:
+                ruvioDown:
+                  summary: Limiter fails closed
+                  value:
+                    type: /problems/unavailable
+                    title: Service unavailable
+                    status: 503
+                    detail: The vote could not be accepted because Ruvio is unavailable.
+                    instance: /polls/3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70/votes
+  /polls/{pollId}/results:
+    get:
+      tags: [Results]
+      operationId: getResults
+      summary: Get current results
+      description: |
+        Current votes per option and votes per second. Counts include votes accepted
+        and not yet written to Postgres. Results stay available after the poll ends.
+        Anyone with the poll link can call this route. No dev token is required.
+        This route is not rate limited.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/PollId'
+      responses:
+        '200':
+          description: Current results snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResultsSnapshot'
+              examples:
+                lunchSpot:
+                  summary: Live totals for Lunch spot
+                  value:
+                    pollId: 3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70
+                    ended: false
+                    votesPerSecond: 3
+                    options:
+                      - optionId: 8a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+                        text: Cafeteria
+                        votes: 4
+                      - optionId: 1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e
+                        text: Food truck
+                        votes: 2
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '404':
+          $ref: '#/components/responses/PollNotFound'
+  /polls/{pollId}/results/stream:
+    get:
+      tags: [Results]
+      operationId: streamResults
+      summary: Stream live results
+      description: |
+        Server-Sent Events (`text/event-stream`) for one poll. The response stays open
+        for at least 1 hour, and each event is flushed as it is written.
+
+        Event name: `results`.
+        `data` is a JSON object matching `ResultsSnapshot` (current option totals and votes per second).
+        At most one `results` event is sent for this poll per second.
+        The payload is the current snapshot, not a history of earlier snapshots.
+        Anyone with the poll link can open this stream. No dev token is required.
+        This route is not rate limited.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/PollId'
+      responses:
+        '200':
+          description: Live results stream.
+          headers:
+            Cache-Control:
+              description: Do not cache the stream.
+              required: true
+              schema:
+                type: string
+              example: no-cache
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/ResultsStreamEvent'
+              examples:
+                results:
+                  summary: One results event
+                  description: |
+                    On the wire this object is one SSE message:
+                    a line `event: results`, a line `data:` plus the JSON snapshot, then a blank line.
+                  value:
+                    event: results
+                    data:
+                      pollId: 3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70
+                      ended: false
+                      votesPerSecond: 3
+                      options:
+                        - optionId: 8a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+                          text: Cafeteria
+                          votes: 4
+                        - optionId: 1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e
+                          text: Food truck
+                          votes: 2
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '404':
+          $ref: '#/components/responses/PollNotFound'
+  /metrics:
+    get:
+      tags: [Metrics]
+      operationId: getMetrics
+      summary: Get current business metrics
+      description: |
+        Votes per second, total votes, active polls, votes per option, and votes
+        still waiting to be written to Postgres. Votes per second is the previous
+        clock second. The metrics panel polls this route at least once a second.
+        This route is not rate limited.
+      responses:
+        '200':
+          description: Current business metrics.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessMetrics'
+              examples:
+                current:
+                  summary: Metrics while Lunch spot is active
+                  value:
+                    votesPerSecond: 3
+                    totalVotes: 6
+                    activePolls: 1
+                    votesPerOption:
+                      - pollId: 3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70
+                        optionId: 8a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+                        text: Cafeteria
+                        votes: 4
+                      - pollId: 3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70
+                        optionId: 1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e
+                        text: Food truck
+                        votes: 2
+                    votesWaitingForPostgres: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /admin/simulations:
+    post:
+      tags: [Admin]
+      operationId: startSimulation
+      security:
+        - adminRole: []
+      summary: Start a simulation
+      description: |
+        Starts virtual voters for one poll. Settings are the poll, the number of voters,
+        ramp-up time, duration, the percent split per option, and a seed.
+        The same settings and the same seed produce the same votes.
+        Virtual voters sign in and vote only through the public auth and vote routes.
+        The BFF routes this path to the Simulator and checks role=admin there. The API does not handle it.
+        Admin usernames are the comma-separated configuration value Admin__Users.
+        A dev token for one of those names includes role=admin.
+        This route is not rate limited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartSimulationRequest'
+            examples:
+              lunchSpotLoad:
+                summary: 1000 voters, 70/30 split, seed 42
+                value:
+                  pollId: 3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70
+                  voterCount: 1000
+                  rampUpSeconds: 30
+                  durationSeconds: 60
+                  voteSplit:
+                    - optionId: 8a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+                      percent: 70
+                    - optionId: 1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e
+                      percent: 30
+                  seed: 42
+      responses:
+        '201':
+          description: Simulation started.
+          headers:
+            Location:
+              description: Path of the new simulation.
+              required: true
+              schema:
+                type: string
+              example: /admin/simulations/9c0d1e2f-3a4b-4c5d-8e6f-7a8b9c0d1e2f
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Simulation'
+              examples:
+                running:
+                  summary: Running simulation
+                  value:
+                    id: 9c0d1e2f-3a4b-4c5d-8e6f-7a8b9c0d1e2f
+                    status: running
+                    pollId: 3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70
+                    voterCount: 1000
+                    rampUpSeconds: 30
+                    durationSeconds: 60
+                    voteSplit:
+                      - optionId: 8a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+                        percent: 70
+                      - optionId: 1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e
+                        percent: 30
+                    seed: 42
+                    startedAt: '2026-11-06T17:01:00Z'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/PollNotFound'
+  /admin/simulations/{simulationId}:
+    get:
+      tags: [Admin]
+      operationId: getSimulation
+      security:
+        - adminRole: []
+      summary: Get simulation status
+      description: |
+        Settings and whether the simulation is running, stopped, or completed.
+        The BFF routes this path to the Simulator and checks role=admin there. The API does not handle it.
+        Admin usernames are the comma-separated configuration value Admin__Users.
+        A dev token for one of those names includes role=admin.
+        This route is not rate limited.
+      parameters:
+        - $ref: '#/components/parameters/SimulationId'
+      responses:
+        '200':
+          description: Simulation status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Simulation'
+              examples:
+                running:
+                  summary: Simulation still running
+                  value:
+                    id: 9c0d1e2f-3a4b-4c5d-8e6f-7a8b9c0d1e2f
+                    status: running
+                    pollId: 3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70
+                    voterCount: 1000
+                    rampUpSeconds: 30
+                    durationSeconds: 60
+                    voteSplit:
+                      - optionId: 8a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+                        percent: 70
+                      - optionId: 1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e
+                        percent: 30
+                    seed: 42
+                    startedAt: '2026-11-06T17:01:00Z'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/SimulationNotFound'
+    delete:
+      tags: [Admin]
+      operationId: stopSimulation
+      security:
+        - adminRole: []
+      summary: Stop a simulation
+      description: |
+        Stops the virtual voters. The response status is `stopped`.
+        The BFF routes this path to the Simulator and checks role=admin there. The API does not handle it.
+        Admin usernames are the comma-separated configuration value Admin__Users.
+        A dev token for one of those names includes role=admin.
+        This route is not rate limited.
+      parameters:
+        - $ref: '#/components/parameters/SimulationId'
+      responses:
+        '200':
+          description: Simulation stopped.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Simulation'
+              examples:
+                stopped:
+                  summary: Simulation after stop
+                  value:
+                    id: 9c0d1e2f-3a4b-4c5d-8e6f-7a8b9c0d1e2f
+                    status: stopped
+                    pollId: 3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70
+                    voterCount: 1000
+                    rampUpSeconds: 30
+                    durationSeconds: 60
+                    voteSplit:
+                      - optionId: 8a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d
+                        percent: 70
+                      - optionId: 1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e
+                        percent: 30
+                    seed: 42
+                    startedAt: '2026-11-06T17:01:00Z'
+                    stoppedAt: '2026-11-06T17:02:00Z'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/SimulationNotFound'
+components:
+  securitySchemes:
+    devToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Stateless signed dev token from POST /auth/dev-token. Send it as a Bearer token.
+        There is no server session.
+    adminRole:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        The same dev token when it includes role=admin.
+        Admin__Users is a comma-separated configuration list of admin usernames.
+        A token for one of those names includes role=admin.
+        Required on every /admin/* route. Real role management is out of scope.
+  parameters:
+    PollId:
+      name: pollId
+      in: path
+      required: true
+      description: Poll id.
+      schema:
+        $ref: '#/components/schemas/PollId'
+      example: 3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70
+    SimulationId:
+      name: simulationId
+      in: path
+      required: true
+      description: Simulation id.
+      schema:
+        $ref: '#/components/schemas/SimulationId'
+      example: 9c0d1e2f-3a4b-4c5d-8e6f-7a8b9c0d1e2f
+    OptionId:
+      name: optionId
+      in: path
+      required: true
+      description: Option id.
+      schema:
+        $ref: '#/components/schemas/OptionId'
+      example: 1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e
+  responses:
+    InvalidRequest:
+      description: The request does not match the contract.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/InvalidRequestProblem'
+          examples:
+            invalidBody:
+              summary: Body failed validation
+              value:
+                type: /problems/invalid-request
+                title: Invalid request
+                status: 400
+                detail: The request body does not match the contract.
+                instance: /polls
+    Unauthorized:
+      description: The dev token is missing or not valid.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/UnauthorizedProblem'
+          examples:
+            missingToken:
+              summary: Bearer token missing
+              value:
+                type: /problems/unauthorized
+                title: Unauthorized
+                status: 401
+                detail: A Bearer dev token is required.
+                instance: /polls
+    PollNotFound:
+      description: No poll exists with this id.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/NotFoundProblem'
+          examples:
+            missingPoll:
+              summary: Unknown poll
+              value:
+                type: /problems/not-found
+                title: Not found
+                status: 404
+                detail: No poll exists with this id.
+                instance: /polls/3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70
+    SimulationNotFound:
+      description: No simulation exists with this id.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/NotFoundProblem'
+          examples:
+            missingSimulation:
+              summary: Unknown simulation
+              value:
+                type: /problems/not-found
+                title: Not found
+                status: 404
+                detail: No simulation exists with this id.
+                instance: /admin/simulations/9c0d1e2f-3a4b-4c5d-8e6f-7a8b9c0d1e2f
+    Forbidden:
+      description: The caller is signed in and is not an admin.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ForbiddenProblem'
+          examples:
+            notAdmin:
+              summary: Signed-in caller is not an admin
+              value:
+                type: /problems/forbidden
+                title: Forbidden
+                status: 403
+                detail: An admin is required for this action.
+                instance: /admin/simulations
+    PollHasVotes:
+      description: The poll has received a vote, so its title and options cannot change.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/PollHasVotesProblem'
+          examples:
+            locked:
+              summary: Edit after the first vote
+              value:
+                type: /problems/poll-has-votes
+                title: Poll has votes
+                status: 409
+                detail: The title and options cannot change after the poll has received a vote.
+                instance: /polls/3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70
+    OptionNotFound:
+      description: This poll has no option with this id.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/NotFoundProblem'
+          examples:
+            missingOption:
+              summary: Unknown option
+              value:
+                type: /problems/not-found
+                title: Not found
+                status: 404
+                detail: This poll has no option with this id.
+                instance: /polls/3f1c0a2e-7b4d-4e1a-9c3f-6a8b2d4e5f70/options/1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e
+  schemas:
+    Username:
+      type: string
+      minLength: 1
+      pattern: '^(?!\s*$).+$'
+      description: Chosen username. Must not be blank or whitespace. No password is associated with it.
+    PollId:
+      type: string
+      format: uuid
+    OptionId:
+      type: string
+      format: uuid
+    SimulationId:
+      type: string
+      format: uuid
+    DevTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [username]
+      properties:
+        username:
+          $ref: '#/components/schemas/Username'
+    DevToken:
+      type: object
+      additionalProperties: false
+      required: [token, username]
+      properties:
+        token:
+          type: string
+          minLength: 1
+          description: Signed JWT. Send as a Bearer token on every route that requires it.
+        username:
+          $ref: '#/components/schemas/Username'
+    CreatePollRequest:
+      type: object
+      additionalProperties: false
+      required: [title, options]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          pattern: '^(?!\s*$).+$'
+          description: Poll title. Must not be blank or whitespace.
+        options:
+          type: array
+          minItems: 2
+          maxItems: 6
+          description: Two to six option labels.
+          items:
+            type: string
+            minLength: 3
+            pattern: '^.*\S.*$'
+            description: Option label. At least 3 characters, and not whitespace only.
+    UpdatePollTitleRequest:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          pattern: '^(?!\s*$).+$'
+          description: Replacement title. Must not be blank or whitespace.
+    PollOptionTextRequest:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 3
+          pattern: '^.*\S.*$'
+          description: Option label. At least 3 characters, and not whitespace only.
+    PollOption:
+      type: object
+      additionalProperties: false
+      required: [id, text]
+      properties:
+        id:
+          $ref: '#/components/schemas/OptionId'
+        text:
+          type: string
+          minLength: 3
+          pattern: '^.*\S.*$'
+    Poll:
+      type: object
+      additionalProperties: false
+      required: [id, title, options, durationSeconds, createdAt, endsAt, ended]
+      properties:
+        id:
+          $ref: '#/components/schemas/PollId'
+        title:
+          type: string
+          minLength: 1
+        options:
+          type: array
+          minItems: 2
+          maxItems: 6
+          items:
+            $ref: '#/components/schemas/PollOption'
+        durationSeconds:
+          type: integer
+          const: 600
+          description: Open window in seconds. The server always sets 600 (10 minutes).
+        createdAt:
+          type: string
+          format: date-time
+        endsAt:
+          type: string
+          format: date-time
+          description: Instant the poll stops accepting votes (`createdAt` plus 10 minutes).
+        ended:
+          type: boolean
+          description: True once `endsAt` has passed. Results stay available either way.
+    CastVoteRequest:
+      type: object
+      additionalProperties: false
+      required: [optionId]
+      properties:
+        optionId:
+          $ref: '#/components/schemas/OptionId'
+    VoteAccepted:
+      type: object
+      additionalProperties: false
+      required: [pollId, optionId, username]
+      properties:
+        pollId:
+          $ref: '#/components/schemas/PollId'
+        optionId:
+          $ref: '#/components/schemas/OptionId'
+        username:
+          $ref: '#/components/schemas/Username'
+          description: Username from the dev token. The vote is stored under this name.
+    OptionTotal:
+      type: object
+      additionalProperties: false
+      required: [optionId, text, votes]
+      properties:
+        optionId:
+          $ref: '#/components/schemas/OptionId'
+        text:
+          type: string
+          minLength: 3
+        votes:
+          type: integer
+          minimum: 0
+          description: Accepted votes for this option, including votes not yet written to Postgres.
+    ResultsSnapshot:
+      type: object
+      additionalProperties: false
+      required: [pollId, ended, votesPerSecond, options]
+      description: Current totals for one poll. Not a history of earlier totals.
+      properties:
+        pollId:
+          $ref: '#/components/schemas/PollId'
+        ended:
+          type: boolean
+        votesPerSecond:
+          type: integer
+          minimum: 0
+          description: Votes accepted during the previous clock second.
+        options:
+          type: array
+          minItems: 2
+          maxItems: 6
+          items:
+            $ref: '#/components/schemas/OptionTotal'
+    ResultsStreamEvent:
+      type: object
+      additionalProperties: false
+      description: |
+        One Server-Sent Event. The event name is `results`.
+        `data` is a `ResultsSnapshot`.
+        Wire form is `text/event-stream`: an `event` line, a `data` line containing the JSON snapshot, then a blank line.
+      required: [event, data]
+      properties:
+        event:
+          type: string
+          const: results
+          description: SSE event name.
+        data:
+          $ref: '#/components/schemas/ResultsSnapshot'
+    OptionVoteMetric:
+      type: object
+      additionalProperties: false
+      required: [pollId, optionId, text, votes]
+      properties:
+        pollId:
+          $ref: '#/components/schemas/PollId'
+        optionId:
+          $ref: '#/components/schemas/OptionId'
+        text:
+          type: string
+          minLength: 3
+        votes:
+          type: integer
+          minimum: 0
+    BusinessMetrics:
+      type: object
+      additionalProperties: false
+      required: [votesPerSecond, totalVotes, activePolls, votesPerOption, votesWaitingForPostgres]
+      properties:
+        votesPerSecond:
+          type: integer
+          minimum: 0
+          description: Votes accepted during the previous clock second.
+        totalVotes:
+          type: integer
+          minimum: 0
+          description: Accepted votes across polls.
+        activePolls:
+          type: integer
+          minimum: 0
+          description: Polls whose 10-minute window has not ended.
+        votesPerOption:
+          type: array
+          description: Vote total for each option of each active poll.
+          items:
+            $ref: '#/components/schemas/OptionVoteMetric'
+        votesWaitingForPostgres:
+          type: integer
+          minimum: 0
+          description: Accepted votes not yet written to Postgres (worker backlog).
+    VoteSplit:
+      type: object
+      additionalProperties: false
+      required: [optionId, percent]
+      properties:
+        optionId:
+          $ref: '#/components/schemas/OptionId'
+        percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Share of this simulation's votes for the option, as a percent.
+    StartSimulationRequest:
+      type: object
+      additionalProperties: false
+      required: [pollId, voterCount, rampUpSeconds, durationSeconds, voteSplit, seed]
+      properties:
+        pollId:
+          $ref: '#/components/schemas/PollId'
+        voterCount:
+          type: integer
+          minimum: 1
+          maximum: 2000
+          description: Number of virtual voters. At most 2000.
+        rampUpSeconds:
+          type: integer
+          minimum: 0
+          description: Seconds over which the virtual voters join. Join time depends only on the voter index, the count, and this value.
+        durationSeconds:
+          type: integer
+          minimum: 1
+          maximum: 600
+          description: How long the plan keeps voting, in seconds. At most 600. This is not the poll's 10-minute window.
+        voteSplit:
+          type: array
+          minItems: 2
+          maxItems: 6
+          description: One entry per poll option. `percent` values are integers and sum to 100.
+          items:
+            $ref: '#/components/schemas/VoteSplit'
+        seed:
+          type: integer
+          description: Same settings and the same seed list the same votes.
+    Simulation:
+      type: object
+      additionalProperties: false
+      required: [id, status, pollId, voterCount, rampUpSeconds, durationSeconds, voteSplit, seed, startedAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/SimulationId'
+        status:
+          type: string
+          enum: [running, stopped, completed]
+          description: |
+            `running` while virtual voters are active.
+            `stopped` after a stop request.
+            `completed` when the duration elapses without a stop request.
+        pollId:
+          $ref: '#/components/schemas/PollId'
+        voterCount:
+          type: integer
+          minimum: 1
+          maximum: 2000
+        rampUpSeconds:
+          type: integer
+          minimum: 0
+        durationSeconds:
+          type: integer
+          minimum: 1
+          maximum: 600
+        voteSplit:
+          type: array
+          minItems: 2
+          maxItems: 6
+          items:
+            $ref: '#/components/schemas/VoteSplit'
+        seed:
+          type: integer
+        startedAt:
+          type: string
+          format: date-time
+        stoppedAt:
+          type: string
+          format: date-time
+          description: Present when status is `stopped` or `completed`.
+    Problem:
+      type: object
+      additionalProperties: false
+      description: Problem Details object (RFC 9457).
+      required: [type, title, status, detail]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          description: Problem type URI.
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+          description: Request path that produced this problem.
+    InvalidRequestProblem:
+      type: object
+      additionalProperties: false
+      description: Request failed validation.
+      required: [type, title, status, detail]
+      properties:
+        type:
+          type: string
+          const: /problems/invalid-request
+        title:
+          type: string
+        status:
+          type: integer
+          const: 400
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+    UnauthorizedProblem:
+      type: object
+      additionalProperties: false
+      description: Dev token missing or not valid.
+      required: [type, title, status, detail]
+      properties:
+        type:
+          type: string
+          const: /problems/unauthorized
+        title:
+          type: string
+        status:
+          type: integer
+          const: 401
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+    NotFoundProblem:
+      type: object
+      additionalProperties: false
+      description: The poll or simulation id does not exist.
+      required: [type, title, status, detail]
+      properties:
+        type:
+          type: string
+          const: /problems/not-found
+        title:
+          type: string
+        status:
+          type: integer
+          const: 404
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+    AlreadyVotedProblem:
+      type: object
+      additionalProperties: false
+      description: This username has already voted on this poll.
+      required: [type, title, status, detail]
+      properties:
+        type:
+          type: string
+          const: /problems/already-voted
+        title:
+          type: string
+        status:
+          type: integer
+          const: 409
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+    PollEndedProblem:
+      type: object
+      additionalProperties: false
+      description: The poll's 10-minute window has ended, so the vote is rejected.
+      required: [type, title, status, detail]
+      properties:
+        type:
+          type: string
+          const: /problems/poll-ended
+        title:
+          type: string
+        status:
+          type: integer
+          const: 409
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+    ForbiddenProblem:
+      type: object
+      additionalProperties: false
+      description: The caller is authenticated and is not an admin.
+      required: [type, title, status, detail]
+      properties:
+        type:
+          type: string
+          const: /problems/forbidden
+        title:
+          type: string
+        status:
+          type: integer
+          const: 403
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+    PollHasVotesProblem:
+      type: object
+      additionalProperties: false
+      description: The poll has received a vote, so its title and options stay as they are.
+      required: [type, title, status, detail]
+      properties:
+        type:
+          type: string
+          const: /problems/poll-has-votes
+        title:
+          type: string
+        status:
+          type: integer
+          const: 409
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+    ServiceUnavailableProblem:
+      type: object
+      additionalProperties: false
+      description: The vote limiter fails closed because Ruvio is unavailable.
+      required: [type, title, status, detail]
+      properties:
+        type:
+          type: string
+          const: /problems/unavailable
+        title:
+          type: string
+        status:
+          type: integer
+          const: 503
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+    RateLimitedProblem:
+      type: object
+      additionalProperties: false
+      description: The per-username vote window is full. The response also has a Retry-After header.
+      required: [type, title, status, detail]
+      properties:
+        type:
+          type: string
+          const: /problems/rate-limited
+        title:
+          type: string
+        status:
+          type: integer
+          const: 429
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference

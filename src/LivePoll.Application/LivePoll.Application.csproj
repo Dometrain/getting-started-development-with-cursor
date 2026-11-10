@@ -1,0 +1,5 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\LivePoll.Domain\LivePoll.Domain.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Ruvio.AspNetCore.RateLimiting" />
+    <PackageReference Include="Ruvio.Client.AspNetCore" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\LivePoll.Application\LivePoll.Application.csproj" />
+    <ProjectReference Include="..\LivePoll.Infrastructure\LivePoll.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

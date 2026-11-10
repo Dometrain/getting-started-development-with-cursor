@@ -1,0 +1,12 @@
+---
+description: .NET and C# conventions
+globs: src/**/*.cs,tests/**/*.cs
+alwaysApply: false
+---
+
+# Backend
+
+- Newest framework APIs (e.g. TypedResults.ServerSentEvents).
+- Async methods end with "Async" and take a CancellationToken.
+- File-scoped namespaces.
+- Tests: xUnit, Method_State_ExpectedResult.

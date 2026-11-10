@@ -1,0 +1,11 @@
+---
+description: Web client conventions
+globs: web/**
+alwaysApply: false
+---
+
+# Frontend
+
+- No "any". Framework from docs/adr/0006-frontend-choice.md.
+- Generate the API client from docs/api/openapi.yaml; never hand-write API types.
+- Tests with Vitest.
